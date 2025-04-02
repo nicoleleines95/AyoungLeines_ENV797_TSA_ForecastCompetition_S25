@@ -1,6 +1,6 @@
 ---
 title: "M9: Advanced Forecasting Methods"
-author: "Luana Lima"
+author: 
 output: pdf_document
 always_allow_html: true
 editor_options: 
