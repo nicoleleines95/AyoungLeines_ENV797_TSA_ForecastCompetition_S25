@@ -126,8 +126,11 @@ Here we are using the `tidyverse` package and pipes to do the data wrangling.
 
 ```{r message=FALSE, warning=FALSE}
 #Importing time series data from text file#
-temperature <- read_excel("../Data/temperature.xlsx")
+#temperature <- read_excel("../Data/temperature.xlsx")
+url <- "https://www.kaggle.com/competitions/tsa-spring-2025/data?select=load.xlsx"
+download.file(url, "load.xlsx")
 
+load <- read_excel("../Data/load.xlsx")
 
 #Fixing date columns and selecting active power only column
 act_power_all <- household_all %>% 
