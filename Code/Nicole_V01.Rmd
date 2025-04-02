@@ -95,8 +95,7 @@ ts_daily_data <- msts(daily_data$daily_total,
                            seasonal.periods =c(7,365.25),
                            start=c(2005,1,1))
 
-ts_daily_data %>% mstl() %>%
-  autoplot()
+
 
 ```
 
@@ -108,11 +107,9 @@ For higher frequency data we will use a variation of `stl()`, the `mstl()` that 
 Since we are only analyzing the components and don't need to store in our environment, let's use pipes to generate the decomposition plot.
 
 ```{r message=FALSE, warning=FALSE}
-## ts_act_power_daily %>% mstl() = mstl(ts_act_power_daily)
-ts_act_power_daily %>% mstl() %>%
-  autoplot()
 
-ts_act_power_hourly %>% mstl() %>%
+
+ts_daily_data %>% mstl() %>%
   autoplot()
 
 ```
@@ -137,15 +134,15 @@ We will set aside a year of data out-of-sample analysis.
 ```{r message=FALSE, warning=FALSE}
 #create a subset for training purpose
 n_for = 365
-ts_act_power_daily_train <- subset(ts_act_power_daily,
-                                   end = length(ts_act_power_daily)-n_for)
+ts_daily_data_train <- subset(ts_daily_data,
+                                   end = length(ts_daily_data)-n_for)
 
 #create a subset for testing purpose
-ts_act_power_daily_test <- subset(ts_act_power_daily,
-                                   start = length(ts_act_power_daily)-n_for)
+ts_daily_data_test <- subset(ts_daily_data,
+                                   start = length(ts_daily_data)-n_for)
 
-autoplot(ts_act_power_daily_train)
-autoplot(ts_act_power_daily_test)
+autoplot(ts_daily_data_train)
+autoplot(ts_daily_data_test)
 ```
 
 ### Model 1: STL + ETS
