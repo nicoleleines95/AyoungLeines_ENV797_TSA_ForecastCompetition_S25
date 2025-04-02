@@ -133,17 +133,74 @@ We will set aside a year of data out-of-sample analysis.
 
 ```{r message=FALSE, warning=FALSE}
 #create a subset for training purpose
-n_for = 365
-ts_daily_data_train <- subset(ts_daily_data,
-                                   end = length(ts_daily_data)-n_for)
 
-#create a subset for testing purpose
-ts_daily_data_test <- subset(ts_daily_data,
-                                   start = length(ts_daily_data)-n_for)
+ts_daily_data_zoo <- zoo(daily_data$daily_total, order.by = as.Date(daily_data$date))
+
+# Create training set: January 1, 2005 to December 31, 2009
+ts_daily_data_train <- window(ts_daily_data_zoo, start = as.Date("2005-01-01"), end = as.Date("2009-12-31"))
+
+# Create testing set: January 1, 2010 to February 28, 2010 (approximately 59 days)
+ts_daily_data_test <- window(ts_daily_data_zoo, start = as.Date("2010-01-01"), end = as.Date("2010-02-28"))
 
 autoplot(ts_daily_data_train)
 autoplot(ts_daily_data_test)
 ```
+
+## Forecasting with Naive methods
+
+We will go over three naive methods.
+(a) Forecast using the arithmetic mean with function meanf() from package `forecast`.
+(b) Forecast using the naive method with function naive() from package `forecast`.
+(c) Forecast using the seasonal naive method with function snaive() from package `forecast`. You need to specify frequency when defining the ts object to be able to use this function.
+
+These three function take a few main arguments:
+
+**y** ts object containing data needed to be forecasted
+**h** forecasting horizon, i.e., how many steps ahead do you want to forecast
+**level** Confidence level for prediction intervals
+
+
+
+```{r}
+
+#Model 3: Seasonal naive on original data
+SNAIVE_seas <- snaive(ts_daily_data, h=59)
+plot(SNAIVE_seas)
+print(SNAIVE_seas)
+print(SNAIVE_seas$mean)
+```
+
+
+```{r}
+# Extract forecast components:
+# SNAIVE_seas$mean contains the point forecasts
+# SNAIVE_seas$lower and SNAIVE_seas$upper contain the prediction intervals
+forecast_values <- SNAIVE_seas$mean
+lower80 <- SNAIVE_seas$lower[, 1]   # lower bound for the 80% interval
+upper80 <- SNAIVE_seas$upper[, 1]   # upper bound for the 80% interval
+lower95 <- SNAIVE_seas$lower[, 2]   # lower bound for the 95% interval
+upper95 <- SNAIVE_seas$upper[, 2]   # upper bound for the 95% interval
+
+# Create a data frame with these results
+forecast_df <- data.frame(
+  Forecast = as.numeric(forecast_values),
+  Lower80 = lower80,
+  Upper80 = upper80,
+  Lower95 = lower95,
+  Upper95 = upper95
+)
+
+# Optionally, add dates.
+# Here we assume the forecast starts on January 1, 2010. Adjust as needed.
+forecast_df$Date <- seq(from = as.Date("2010-01-01"), length.out = 59, by = "day")
+
+# Reorder columns so Date comes first
+forecast_df <- forecast_df[, c("Date", "Forecast", "Lower80", "Upper80", "Lower95", "Upper95")]
+
+# Export the data frame to a CSV file
+write.csv(forecast_df, "SNAIVE_seas_forecast.csv", row.names = FALSE)
+```
+
 
 ### Model 1: STL + ETS
 
