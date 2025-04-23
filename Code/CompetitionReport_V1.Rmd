@@ -143,3 +143,8 @@ print(SNAIVE_seas$mean)
 #Model 7: Temperature ARIMAF
 
 ```
+
+```{r}
+#Model 7: Humidity
+
+```
