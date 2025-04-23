@@ -1,0 +1,466 @@
+---
+title: "CompetitionReport"
+author: "AyoungLeines"
+date: "2025-04-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo    = TRUE,          # show code; hide if not needed
+  message = FALSE,
+  warning = FALSE
+)
+```
+
+## Packages
+
+```{r package, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(readxl)
+library(lubridate)
+library(janitor)
+library(ggplot2)
+library(forecast)  
+library(Kendall)
+library(tseries)
+library(outliers)
+library(smooth)
+library(zoo)
+library(kableExtra)
+
+library(forecastHybrid)
+```
+
+#Directory
+
+```{r}
+base_dir <- "D:/Geani/Box/Home Folder gnl13/Private/1 Academics/3 Time series/AyoungLeines_ENV797_TSA_ForecastCompetition_S25" # Update this
+data_dir <- file.path(base_dir, "Data")
+output_dir <- file.path(base_dir, "Forecast")
+
+file1 <- "load.xlsx"
+file2 <- "temperature.xlsx"
+file3 <- "relative_humidity.xlsx"
+
+file_path1 <- file.path(data_dir, file1)
+file_path2 <- file.path(data_dir, file2)
+file_path3 <- file.path(data_dir, file3)
+
+load_raw <- read_excel(file_path1)
+temp_raw <- read_excel(file_path2)
+hum_raw <- read_excel(file_path3)
+
+```
+
+
+#Wrangling data - Aggregate the hourly data to daily using averages
+
+```{r}
+
+#Demand
+
+load_long <- load_raw %>%                                   # h1–h24 → long
+  pivot_longer(cols = starts_with("h"),
+               names_to = "hour", names_prefix = "h",
+               values_to = "load_kwh") %>% 
+  mutate(date     = as_date(date),
+         hour     = as.integer(hour),
+         meter_id = factor(meter_id))
+
+daily_load <- load_long %>%
+  group_by(meter_id, date) %>%                              # mean over 24 h
+  summarise(daily_load_kwh = mean(load_kwh, na.rm = TRUE),
+            .groups = "drop")
+
+```
+
+
+```{r}
+# Temperature 
+
+daily_temp <- temp_raw %>% 
+  pivot_longer(cols = starts_with("t_ws"),
+               names_to = "station", names_prefix = "t_ws",
+               values_to = "temp_c") %>% 
+  mutate(date = as_date(date)) %>%
+  group_by(date) %>%                                        # mean over hr & stations
+  summarise(mean_temp_c = mean(temp_c, na.rm = TRUE),
+            .groups = "drop")
+
+# Relative Humidity 
+daily_hum <- hum_raw %>% 
+  pivot_longer(cols = starts_with("rh_ws"),
+               names_to = "station", names_prefix = "rh_ws",
+               values_to = "rh_pct") %>% 
+  mutate(date = as_date(date)) %>%
+  group_by(date) %>%
+  summarise(mean_rh_pct = mean(rh_pct, na.rm = TRUE),
+            .groups = "drop")
+
+```
+
+
+```{r}
+
+#Dermand + temperature + humidity
+daily_data <- daily_load %>% 
+  inner_join(daily_temp, by = "date") %>% 
+  inner_join(daily_hum,  by = "date")
+
+agg_daily <- daily_data %>% 
+  group_by(date) %>% 
+  summarise(
+    demand_kwh = sum(daily_load_kwh, na.rm = TRUE),
+    temp_c     = mean(mean_temp_c,  na.rm = TRUE),  # <- renamed here
+    rh_pct     = mean(mean_rh_pct,  na.rm = TRUE),  # <- and here
+    .groups    = "drop"
+  )
+```
+
+```{r}
+agg_daily %>% 
+  slice_head(n = 6) %>% 
+  kableExtra::kable(
+    caption = "First six rows of the aggregated daily data set (per meter).",
+    digits  = 2
+  )
+
+```
+
+```{r}
+# Regressors
+x_full <- agg_daily %>% 
+  select(temp_c, rh_pct) %>% 
+  as.matrix()
+colnames(x_full) <- c("temp", "humid")   # short labels
+str(x_full)
+```
+
+##Time series object
+
+```{r}
+
+# Create multiseasonal ts object (weekly & yearly)
+
+y_full <- msts(agg_daily$demand_kwh,
+               start            = c(2005, 1),    # 2005-01-01
+               seasonal.periods = c(7, 365.25))
+
+```
+
+##Training and testing windows
+
+```{r}
+
+# indices
+n_train <- which(agg_daily$date == as.Date("2009-12-31"))
+n_valid <- which(agg_daily$date == as.Date("2010-02-28"))
+n_test  <- which(agg_daily$date == as.Date("2011-02-28"))
+
+# training (2005-2009)
+y_train <- window(y_full, end = c(2009, 365))
+x_train <- x_full[1:n_train, ]
+
+# validation (2010-01-01 → 2010-02-28)
+y_valid <- window(y_full, start = c(2010, 1), end = c(2010, 59))
+x_valid <- x_full[(n_train + 1):n_valid, ]
+
+# test   (2011-01-01 → 2011-02-28)  – forecasts required by competition
+x_test  <- x_full[(n_valid + 1):n_test, ]        # regressors known for 2010?
+
+```
+
+
+
+
+## Forecasting
+
+```{r}
+#Model 1: Seasonal naive on ts object
+
+```
+
+
+```{r}
+#Model 2: ARIMA
+
+```
+
+```{r}
+#Model 3: STL + ETS
+
+```
+
+```{r}
+#Model 4: TBAT
+
+```
+
+```{r}
+#Model 5: NN
+
+```
+
+```{r}
+#Model 6: Temperature NN
+
+```
+
+```{r}
+#Model 7: Temperature ARIMAF
+
+```
+
+```{r}
+#Model 7: Humidity
+
+```
+
+```{r}
+
+# Initialize results storage
+model_results <- tibble(Model = character(), Reg = character(), MAPE = numeric())
+
+# Helper function to calculate MAPE
+calc_mape <- function(fc, actual) {
+  mean(abs((actual - fc)/actual)) * 100
+}
+
+# 1. Seasonal-naïve
+fc_snaive <- snaive(ts_train, h = 59)
+model_results <- add_row(model_results,
+                        Model = "Seasonal-naïve", Reg = "none",
+                        MAPE = calc_mape(fc_snaive$mean, ts_test))
+
+# 2. Mean forecast
+fc_mean <- meanf(ts_train, h = 59)
+model_results <- add_row(model_results,
+                        Model = "Mean forecast", Reg = "none",
+                        MAPE = calc_mape(fc_mean$mean, ts_test))
+
+# 3. ARIMA
+fit_arima <- auto.arima(ts_train)
+fc_arima <- forecast(fit_arima, h = 59)
+model_results <- add_row(model_results,
+                        Model = "ARIMA", Reg = "none",
+                        MAPE = calc_mape(fc_arima$mean, ts_test))
+
+# 4-6. ARIMAX models
+fit_arimax_temp <- auto.arima(ts_train, xreg = x_train_temp)
+fc_arimax_temp <- forecast(fit_arimax_temp, xreg = x_future_temp)
+model_results <- add_row(model_results,
+                        Model = "ARIMAX", Reg = "temp",
+                        MAPE = calc_mape(fc_arimax_temp$mean, ts_test))
+
+fit_arimax_hum <- auto.arima(ts_train, xreg = x_train_hum)
+fc_arimax_hum <- forecast(fit_arimax_hum, xreg = x_future_hum)
+model_results <- add_row(model_results,
+                        Model = "ARIMAX", Reg = "humid",
+                        MAPE = calc_mape(fc_arimax_hum$mean, ts_test))
+
+fit_arimax_both <- auto.arima(ts_train, xreg = x_train_both)
+fc_arimax_both <- forecast(fit_arimax_both, xreg = x_future_both)
+model_results <- add_row(model_results,
+                        Model = "ARIMAX", Reg = "both",
+                        MAPE = calc_mape(fc_arimax_both$mean, ts_test))
+
+# 7. STL+ETS
+fit_stlm <- stlm(ts_train, method = "ets")
+fc_stlm <- forecast(fit_stlm, h = 59)
+model_results <- add_row(model_results,
+                        Model = "STL + ETS", Reg = "none",
+                        MAPE = calc_mape(fc_stlm$mean, ts_test))
+
+# 8. TBATS
+fit_tbats <- tbats(ts_train)
+fc_tbats <- forecast(fit_tbats, h = 59)
+model_results <- add_row(model_results,
+                        Model = "TBATS", Reg = "none",
+                        MAPE = calc_mape(fc_tbats$mean, ts_test))
+
+# 9. Neural-net variants
+set.seed(123)
+fit_nnet_none <- nnetar(ts_train)
+fc_nnet_none <- forecast(fit_nnet_none, h = 59)
+model_results <- add_row(model_results,
+                        Model = "Neural-net", Reg = "none",
+                        MAPE = calc_mape(fc_nnet_none$mean, ts_test))
+
+set.seed(123)
+fit_nnet_temp <- nnetar(ts_train, xreg = x_train_temp)
+fc_nnet_temp <- forecast(fit_nnet_temp, xreg = x_future_temp)
+model_results <- add_row(model_results,
+                        Model = "Neural-net", Reg = "temp",
+                        MAPE = calc_mape(fc_nnet_temp$mean, ts_test))
+
+set.seed(123)
+fit_nnet_hum <- nnetar(ts_train, xreg = x_train_hum)
+fc_nnet_hum <- forecast(fit_nnet_hum, xreg = x_future_hum)
+model_results <- add_row(model_results,
+                        Model = "Neural-net", Reg = "humid",
+                        MAPE = calc_mape(fc_nnet_hum$mean, ts_test))
+
+set.seed(123)
+fit_nnet_both <- nnetar(ts_train, xreg = x_train_both)
+fc_nnet_both <- forecast(fit_nnet_both, xreg = x_future_both)
+model_results <- add_row(model_results,
+                        Model = "Neural-net", Reg = "both",
+                        MAPE = calc_mape(fc_nnet_both$mean, ts_test))
+
+# 10. Fourier ARIMA
+fourier_train <- fourier(ts_train, K = c(3,10))
+fourier_future <- fourier(ts_train, K = c(3,10), h = 59)
+fit_fourier <- auto.arima(ts_train, xreg = fourier_train)
+fc_fourier <- forecast(fit_fourier, xreg = fourier_future)
+model_results <- add_row(model_results,
+                        Model = "ARIMA + Fourier", Reg = "other",
+                        MAPE = calc_mape(fc_fourier$mean, ts_test))
+
+# 11. Exponential smoothing
+fit_es <- es(ts_train)
+fc_es <- forecast(fit_es, h = 59)
+model_results <- add_row(model_results,
+                        Model = "Exponential-smoothing", Reg = "none",
+                        MAPE = calc_mape(fc_es$mean, ts_test))
+
+# 12. Structural Model
+fit_struct <- StructTS(ts_train)
+fc_struct <- forecast(fit_struct, h = 59)
+model_results <- add_row(model_results,
+                        Model = "Basic Structural", Reg = "none",
+                        MAPE = calc_mape(fc_struct$mean, ts_test))
+
+# Final formatting
+model_results %>%
+  arrange(MAPE) %>%
+  kable(format = "html", digits = 2, col.names = c("Model", "Regressors", "MAPE")) %>%
+  kable_styling("striped", full_width = FALSE) %>%
+  row_spec(1, bold = TRUE, color = "white", background = "#4CAF50")
+
+
+
+```
+
+```{r}
+
+# --------------------------------------------------
+# Helper objects & functions ------------------------
+# --------------------------------------------------
+h     <- length(ts_test)                         # 59-day horizon
+mape  <- function(actual, pred) mean(abs(actual - pred) / abs(actual)) * 100
+
+# Plain numeric matrices for x-regressors ----------
+mat_train_temp  <- matrix(as.numeric(x_train_temp),  ncol = 1)
+mat_future_temp <- matrix(as.numeric(x_future_temp), ncol = 1)
+
+mat_train_hum   <- matrix(as.numeric(x_train_hum),   ncol = 1)
+mat_future_hum  <- matrix(as.numeric(x_future_hum),  ncol = 1)
+
+mat_train_both  <- cbind(temp  = mat_train_temp,
+                         humid = mat_train_hum)
+mat_future_both <- cbind(temp  = mat_future_temp,
+                         humid = mat_future_hum)
+
+# Results tibble & helper --------------------------
+results  <- tibble(Model = character(),
+                   Reg   = character(),
+                   MAPE  = numeric())
+
+add_res <- function(model, reg, fc_vec) {
+  results <<- results %>%
+    add_row(Model = model,
+            Reg   = reg,
+            MAPE  = mape(ts_test, fc_vec))
+}
+
+# --------------------------------------------------
+# 1. Baseline naïve / mean -------------------------
+# --------------------------------------------------
+add_res("snaive", "none", snaive(ts_train, h = h)$mean)
+add_res("meanf",  "none", meanf(ts_train,  h = h)$mean)
+
+# --------------------------------------------------
+# 2. ARIMA family (single-season coercion) ---------
+# --------------------------------------------------
+ts_train_arima <- ts(as.numeric(ts_train), frequency = 7)   # keep weekly seasonality
+
+## Univariate ARIMA
+fit_arima <- auto.arima(ts_train_arima,
+                        seasonal      = TRUE,
+                        stepwise      = FALSE,
+                        approximation = FALSE)
+add_res("ARIMA", "none",
+        forecast(fit_arima, h = h)$mean)
+
+## ARIMAX variants
+fit_arimax_t <- auto.arima(ts_train_arima, xreg = mat_train_temp)
+add_res("ARIMAX", "temp",
+        forecast(fit_arimax_t,
+                 xreg = mat_future_temp, h = h)$mean)
+
+fit_arimax_h <- auto.arima(ts_train_arima, xreg = mat_train_hum)
+add_res("ARIMAX", "humid",
+        forecast(fit_arimax_h,
+                 xreg = mat_future_hum, h = h)$mean)
+
+fit_arimax_b <- auto.arima(ts_train_arima, xreg = mat_train_both)
+add_res("ARIMAX", "both",
+        forecast(fit_arimax_b,
+                 xreg = mat_future_both, h = h)$mean)
+
+## Dynamic harmonic regression with Fourier terms
+K_vec        <- c(3, 10)
+four_train   <- fourier(ts_train_arima, K = K_vec)
+four_future  <- fourier(ts_train_arima, K = K_vec, h = h)
+fit_four     <- auto.arima(ts_train_arima, xreg = four_train, seasonal = FALSE)
+add_res("ARIMA+Fourier", "other",
+        forecast(fit_four, xreg = four_future, h = h)$mean)
+
+# --------------------------------------------------
+# 3. STL-ETS, TBATS, ES, StructTS ------------------
+# --------------------------------------------------
+add_res("STL+ETS", "none",
+        forecast(stlm(ts_train, s.window = "periodic"), h = h)$mean)
+
+add_res("TBATS", "none",
+        forecast(tbats(ts_train), h = h)$mean)
+
+add_res("ES", "none",
+        forecast(es(ts_train, silent = TRUE), h = h)$mean)
+
+add_res("StructTS", "none",
+        forecast(StructTS(ts_train, type = "BSM"), h = h)$mean)
+
+# --------------------------------------------------
+# 4. Neural-net autoregression ---------------------
+# --------------------------------------------------
+set.seed(123)
+add_res("nnetar", "none",
+        forecast(nnetar(ts_train), h = h)$mean)
+
+set.seed(123)
+add_res("nnetar", "temp",
+        forecast(nnetar(ts_train, xreg = mat_train_temp),
+                 xreg = mat_future_temp, h = h)$mean)
+
+set.seed(123)
+add_res("nnetar", "humid",
+        forecast(nnetar(ts_train, xreg = mat_train_hum),
+                 xreg = mat_future_hum,  h = h)$mean)
+
+set.seed(123)
+add_res("nnetar", "both",
+        forecast(nnetar(ts_train, xreg = mat_train_both),
+                 xreg = mat_future_both, h = h)$mean)
+
+# --------------------------------------------------
+# 5. Display ranked table --------------------------
+# --------------------------------------------------
+results %>%
+  arrange(MAPE) %>%
+  kbl(digits = 2, caption = "Forecast accuracy (MAPE) — lower is better") %>%
+  kable_styling(full_width = FALSE, position = "center")
+
+```
+
