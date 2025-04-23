@@ -1,0 +1,145 @@
+---
+title: "CompetitionReport"
+author: "AyoungLeines"
+date: "2025-04-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Packages
+
+```{r package, message=FALSE, warning=FALSE}
+library(lubridate)
+library(ggplot2)
+library(forecast)  
+library(Kendall)
+library(tseries)
+library(outliers)
+library(tidyverse)
+library(smooth)
+library(zoo)
+library(kableExtra)
+library(readxl)
+```
+
+#Directory
+
+```{r}
+base_dir <- "D:/Geani/Box/Home Folder gnl13/Private/1 Academics/3 Time series/AyoungLeines_ENV797_TSA_ForecastCompetition_S25" # Update this
+data_dir <- file.path(base_dir, "Data")
+output_dir <- file.path(base_dir, "Forecast")
+
+file1 <- "load.xlsx"
+file2 <- "temperature.xlsx"
+file3 <- "relative_humidity.xlsx"
+
+file_path1 <- file.path(data_dir, file1)
+file_path2 <- file.path(data_dir, file2)
+file_path3 <- file.path(data_dir, file3)
+
+load <- read_excel(file_path1)
+temperature <- read_excel(file_path2)
+humidity <- read_excel(file_path3)
+
+```
+
+#Load - Aggregate the hourly data to daily using averages
+
+```{r}
+# Convert the date column to Date format
+load$date <- as.Date(load$date)
+load$date <- ymd(load$date)
+
+# Transform from wide to long format and then aggregate by meter_id and date
+daily_data <- load %>%
+  pivot_longer(cols = starts_with("h"), 
+               names_to = "hour", 
+               values_to = "demand") %>%
+  group_by(meter_id, date) %>%
+  summarise(daily_total = mean(demand, na.rm = TRUE), .groups = "drop")
+
+summary(daily_data$daily_total)
+
+p1 <-ggplot(daily_data, aes(x = date, y = daily_total)) +
+  geom_line() +
+  labs(title = "Daily data over time", x = "Date", y = "Daily demand") +
+  theme_classic()
+
+print(p1)
+```
+
+#Time series object
+
+```{r message=FALSE, warning=FALSE}
+
+## Transforming serie into time serie object
+ts_daily_data <- msts(daily_data$daily_total, 
+                           seasonal.periods =c(7,365.25),
+                           start=c(2005,1,1))
+
+## Decomposing time serie object
+ts_daily_data %>% mstl() %>%
+  autoplot()
+
+```
+
+
+##Training and testing sets
+
+```{r message=FALSE, warning=FALSE}
+
+#create a subset for training purpose
+ts_daily_data_zoo <- zoo(daily_data$daily_total, order.by = as.Date(daily_data$date))
+
+# Create training set: January 1, 2005 to December 31, 2009
+ts_daily_data_train <- window(ts_daily_data_zoo, start = as.Date("2005-01-01"), end = as.Date("2009-12-31"))
+
+# Create testing set: January 1, 2010 to February 28, 2010 (approximately 59 days)
+ts_daily_data_test <- window(ts_daily_data_zoo, start = as.Date("2010-01-01"), end = as.Date("2010-02-28"))
+
+autoplot(ts_daily_data_train)
+autoplot(ts_daily_data_test)
+```
+## Forecasting
+
+```{r}
+#Model 1: Seasonal naive on ts object
+SNAIVE_seas <- snaive(ts_daily_data, h=59)
+plot(SNAIVE_seas)
+print(SNAIVE_seas)
+print(SNAIVE_seas$mean)
+```
+
+
+```{r}
+#Model 2: ARIMA
+
+```
+
+```{r}
+#Model 3: STL + ETS
+
+```
+
+```{r}
+#Model 4: TBAT
+
+```
+
+```{r}
+#Model 5: NN
+
+```
+
+```{r}
+#Model 6: Temperature NN
+
+```
+
+```{r}
+#Model 7: Temperature ARIMAF
+
+```
