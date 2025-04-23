@@ -153,21 +153,18 @@ y_full <- msts(agg_daily$demand_kwh,
 
 ```{r}
 
-# indices
-n_train <- which(agg_daily$date == as.Date("2009-12-31"))
-n_valid <- which(agg_daily$date == as.Date("2010-02-28"))
-n_test  <- which(agg_daily$date == as.Date("2011-02-28"))
+# index helpers
+train_end <- which(agg_daily$date == as.Date("2009-12-31"))
+val_end   <- which(agg_daily$date == as.Date("2010-02-28"))
 
-# training (2005-2009)
-y_train <- window(y_full, end = c(2009, 365))
-x_train <- x_full[1:n_train, ]
+# ------------------- response ---------------------------------------------
+y_train <- window(y_full, end = c(2009, 365))         # 2005-01-01 → 2009-12-31
+y_val   <- window(y_full, start = c(2010, 1), end = c(2010, 59))  # 59 days
 
-# validation (2010-01-01 → 2010-02-28)
-y_valid <- window(y_full, start = c(2010, 1), end = c(2010, 59))
-x_valid <- x_full[(n_train + 1):n_valid, ]
+# ------------------- regressors -------------------------------------------
+x_train <- x_full[1:train_end, ]
+x_val   <- x_full[(train_end + 1):val_end, ]
 
-# test   (2011-01-01 → 2011-02-28)  – forecasts required by competition
-x_test  <- x_full[(n_valid + 1):n_test, ]        # regressors known for 2010?
 
 ```
 
