@@ -1,0 +1,350 @@
+---
+title: "CompetitionReport"
+author: "AyoungLeines"
+date: "2025-04-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo    = TRUE,          # show code; hide if not needed
+  message = FALSE,
+  warning = FALSE
+)
+```
+
+## Packages
+
+```{r package, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(readxl)
+library(lubridate)
+library(janitor)
+library(ggplot2)
+library(forecast)  
+library(Kendall)
+library(tseries)
+library(outliers)
+library(smooth)
+library(zoo)
+library(kableExtra)
+library(tsibble)
+library(tibble)
+library(forecastHybrid)
+library(purrr)
+library(tictoc)
+```
+
+#Directory
+
+```{r}
+base_dir <- "D:/Geani/Box/Home Folder gnl13/Private/1 Academics/3 Time series/AyoungLeines_ENV797_TSA_ForecastCompetition_S25" # Update this
+data_dir <- file.path(base_dir, "Data")
+output_dir <- file.path(base_dir, "Forecast")
+
+file1 <- "load.xlsx"
+file2 <- "temperature.xlsx"
+file3 <- "relative_humidity.xlsx"
+file4 <- "submission_template.xlsx"
+
+file_path1 <- file.path(data_dir, file1)
+file_path2 <- file.path(data_dir, file2)
+file_path3 <- file.path(data_dir, file3)
+file_path4 <- file.path(data_dir, file4)
+
+load_raw <- read_excel(file_path1)
+temp_raw <- read_excel(file_path2)
+hum_raw <- read_excel(file_path3)
+template <- read_excel(file_path4)
+
+```
+
+
+#Wrangling data - Aggregate the hourly data to daily using averages
+
+```{r}
+
+#Demand
+
+# from wide (h1–h24) to long format, convert hour to integer
+load_long <- load_raw %>%
+  pivot_longer(
+    cols        = starts_with("h"),
+    names_to    = "hour",
+    names_prefix= "h",
+    values_to   = "load_kwh"
+  ) %>%
+  mutate(
+    date     = as_date(date),
+    hour     = as.integer(hour),
+    meter_id = factor(meter_id)
+  )
+
+# compute per‐meter daily mean
+daily_load <- load_long %>%
+  group_by(meter_id, date) %>%
+  summarise(
+    daily_load_kwh = mean(load_kwh, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+```
+
+
+```{r}
+# Temperature 
+
+# daily mean across all hours and stations
+daily_temp <- temp_raw %>%
+  pivot_longer(
+    cols         = starts_with("t_ws"),
+    names_to     = "station",
+    names_prefix = "t_ws",
+    values_to    = "temp_c"
+  ) %>%
+  mutate(date = as_date(date)) %>%
+  group_by(date) %>%
+  summarise(
+    mean_temp_c = mean(temp_c, na.rm = TRUE),
+    .groups     = "drop"
+  )
+
+# Relative humidity
+daily_hum <- hum_raw %>%
+  pivot_longer(
+    cols         = starts_with("rh_ws"),
+    names_to     = "station",
+    names_prefix = "rh_ws",
+    values_to    = "rh_pct"
+  ) %>%
+  mutate(date = as_date(date)) %>%
+  group_by(date) %>%
+  summarise(
+    mean_rh_pct = mean(rh_pct, na.rm = TRUE),
+    .groups     = "drop"
+  )
+
+
+```
+
+
+```{r}
+
+daily_data <- daily_load %>%
+  inner_join(daily_temp, by = "date") %>%
+  inner_join(daily_hum,  by = "date")
+
+# total system demand per day, plus averaged covariates
+agg_daily <- daily_data %>%
+  group_by(date) %>%
+  summarise(
+    demand_kwh = sum(daily_load_kwh, na.rm = TRUE),
+    temp_c     = mean(mean_temp_c,  na.rm = TRUE),
+    rh_pct     = mean(mean_rh_pct,  na.rm = TRUE),
+    .groups    = "drop"
+  )
+
+```
+
+
+
+```{r}
+
+agg_daily %>%
+  slice_head(n = 6) %>%
+  kable(
+    caption = "First six days of aggregated daily demand, temperature, and humidity",
+    digits  = 2
+  ) %>%
+  kable_styling(full_width = FALSE)
+
+```
+
+
+```{r}
+
+# Define training and testing sets
+train <- agg_daily %>%
+  filter(date >= ymd("2005-01-01") & date <= ymd("2009-12-31"))
+
+test <- agg_daily %>%
+  filter(date >= ymd("2010-01-01") & date <= ymd("2010-02-28"))
+
+# 5.2 Construct msts objects with weekly and yearly seasonality
+y_train <- msts(
+  train$demand_kwh,
+  seasonal.periods = c(7, 365.25),
+  start             = c(2005, 1)
+)
+
+y_test <- msts(
+  test$demand_kwh,
+  seasonal.periods = c(7, 365.25),
+  start             = c(2010, 1)
+)
+
+
+
+```
+
+
+
+
+
+
+
+## Forecasting
+
+
+
+
+```{r forecasting-comparison, message=FALSE, warning=FALSE}
+
+tic("all models")
+# 1) Forecast horizon
+h <- length(y_test)
+
+# 2) Fit each model
+fc_naive       <- naive(y_train, h = h)
+fc_snaive      <- snaive(y_train, h = h)
+fc_ets         <- forecast(ets(y_train),     h = h)
+fc_tbats       <- forecast(tbats(y_train),   h = h)
+
+# TBATS with weather covariates
+xreg_temp      <- matrix(train$temp_c,  ncol = 1)
+xreg_test_temp <- matrix(test$temp_c,   ncol = 1)
+xreg_hum       <- matrix(train$rh_pct,  ncol = 1)
+xreg_test_hum  <- matrix(test$rh_pct,   ncol = 1)
+xreg_both      <- cbind(train$temp_c,  train$rh_pct)
+xreg_test_both <- cbind(test$temp_c,   test$rh_pct)
+
+fc_tbats_temp  <- forecast(tbats(y_train, xreg = xreg_temp),  h = h, xreg = xreg_test_temp)
+fc_tbats_hum   <- forecast(tbats(y_train, xreg = xreg_hum),   h = h, xreg = xreg_test_hum)
+fc_tbats_both  <- forecast(tbats(y_train, xreg = xreg_both),  h = h, xreg = xreg_test_both)
+
+# Dynamic regress ARIMA + Fourier
+K_weekly <- 2; K_annual <- 6
+f_tr      <- fourier(y_train,      K = c(K_weekly, K_annual))
+f_ts      <- fourier(y_train,      K = c(K_weekly, K_annual), h = h)
+fit_ahr   <- auto.arima(y_train, seasonal = FALSE, xreg = f_tr)
+fc_ahr    <- forecast(fit_ahr, h = h, xreg = f_ts)
+
+# Non‐seasonal ARIMA
+fit_nsar  <- auto.arima(y_train, seasonal = FALSE)
+fc_nsar   <- forecast(fit_nsar, h = h)
+
+# STL + ETS
+fc_stl_ets <- stlf(y_train, h = h, method = "ets")
+
+
+
+# Neural net + Fourier
+set.seed(123)
+fc_nn_long  <- forecast(
+  nnetar(y_train, xreg = f_tr, repeats = 20, MaxNWts = 5000),
+  h    = h,
+  xreg = f_ts
+)
+
+# Theta
+fc_theta      <- thetaf(y_train, h = h)
+
+# STL + ARIMA 
+fc_stl_arima  <- stlm(y_train, s.window="periodic", method="arima") %>% forecast(h = h)
+
+# ETS with Box–Cox (λ chosen to stabilize MAPE)
+fc_ets_bc     <- forecast(ets(y_train, lambda="auto"), h = h)
+
+# State-space SES (unconstrained ETS)
+fc_ses        <- forecast(es(y_train, model="ZZZ"), h = h, holdout=FALSE)      
+
+# Basic structural model (BSM)
+ss_fit        <- StructTS(y_train, type="BSM")
+fc_bsm        <- forecast(ss_fit, h = h)                                        
+
+# Hybrid ensemble of core methods
+hyb           <- hybridModel(
+                   y_train,
+                   models = c("a","e","t","b","n"),   # ARIMA, ETS, Theta, TBATS, NNAR
+                   weights = "equal"
+                 )
+fc_hybrid     <- forecast(hyb, h = h)
+
+# ARIMA + Fourier + weather regressors
+f_tr          <- fourier(y_train, K = c(2,6))
+f_ts          <- fourier(y_train, K = c(2,6), h = h)
+fit_reg       <- auto.arima(
+                   y_train,
+                   seasonal = FALSE,
+                   xreg     = cbind(f_tr, train$temp_c, train$rh_pct)
+                 )
+fc_reg        <- forecast(
+                   fit_reg,
+                   h    = h,
+                   xreg = cbind(f_ts, test$temp_c, test$rh_pct)
+                 )                                            
+
+toc()
+```
+
+
+```{r results='asis'}
+# 3) Extract accuracy metrics
+models <- list(
+  Naive          = fc_naive,
+  SNaive         = fc_snaive,
+  ETS            = fc_ets,
+  `ETS-BoxCox`   = fc_ets_bc,
+  Theta          = fc_theta,
+  `STL+ARIMA`    = fc_stl_arima,
+  TBATS          = fc_tbats,
+  `TBATS+Temp`   = fc_tbats_temp,
+  `TBATS+Hum`    = fc_tbats_hum,
+  `ARIMA+Four`   = fc_ahr,
+  `ARIMA+F+Wx`   = fc_reg,
+  `STL+ETS`      = fc_stl_ets,
+  `NNAR+Four`    = fc_nn_long,
+  SSES           = fc_ses,
+  BSM            = fc_bsm,
+  Hybrid         = fc_hybrid
+)
+
+accuracy_tbl <- purrr::map_df(
+  models,
+  ~ accuracy(.x, y_test)[1, c("ME","RMSE","MAE","MAPE")],
+  .id = "Model"
+)
+
+# 4) Render comparison table
+accuracy_tbl %>%
+  arrange(RMSE) %>%
+  kable(
+    caption = "Forecast accuracy comparison (all models)",
+    digits  = 2
+  ) %>%
+  kable_styling(full_width = FALSE)
+```
+
+
+
+
+```{r}
+# 5) Export each model’s point‐forecast to its own CSV
+date_col     <- names(template)[1]
+forecast_col <- names(template)[2]
+
+# 5) Export each model’s point‐forecast to its own CSV
+for (m in names(models)) {
+  out <- template %>%
+    mutate(
+      !!date_col     := format(as.Date(.data[[date_col]]), "%Y-%m-%d"),
+      !!forecast_col := as.numeric(models[[m]]$mean)
+    )
+  write_csv(
+    out,
+    file.path(output_dir, paste0("submission_", gsub("\\s|\\+","_",m), ".csv"))
+  )
+}
+```
+
+
