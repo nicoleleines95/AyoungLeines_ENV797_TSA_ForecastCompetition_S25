@@ -2,7 +2,9 @@
 title: "Competition Report"
 author: "AyoungLeines"
 date: "2025-04-23"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -213,7 +215,7 @@ fc_reg        <- forecast(
                  )        
 
 
-# ETS with Box–Cox (λ chosen to stabilize MAPE)
+# ETS with Box–Cox (lambda chosen to stabilize MAPE)
 fc_ets_bc     <- forecast(ets(y_train, lambda="auto"), h = h)
 
 fc_naive       <- naive(y_train, h = h)
@@ -276,7 +278,7 @@ h_future       <- length(forecast_dates)  # 59
 ```
 
 ```{r}
-#Model 1: # ETS with Box–Cox (λ chosen to stabilize MAPE)
+#Model 1: # ETS with Box–Cox (lambda chosen to stabilize MAPE)
 fc_ets_bc_full     <- forecast(ets(y_full, lambda="auto"), h = h_future)
 
 print(fc_ets_bc_full)
